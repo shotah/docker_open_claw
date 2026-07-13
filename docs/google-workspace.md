@@ -177,7 +177,10 @@ credentials_path = "/zeroclaw-data/.config/gws/credentials.json"
 # no allowed_operations → all methods for those services
 ```
 
-Compose mounts `./secrets/google` → `/zeroclaw-data/.config/gws`.
+Compose mounts `./secrets/google` → `/zeroclaw-data/.config/gws` for
+`credentials.json`. The gws **token cache** lives on tmpfs at
+`/zeroclaw-scratch/gws` (`GOOGLE_WORKSPACE_CLI_CONFIG_DIR`) so `chmod 0700`
+succeeds — bind mounts often cannot set Unix mode bits.
 
 Then ask Tim over Telegram, e.g. “What’s unread?” or “Summarize the doc titled …”.
 
@@ -187,11 +190,12 @@ Then ask Tim over Telegram, e.g. “What’s unread?” or “Summarize the doc 
 
 - **Access blocked / app not verified** — consent screen is in Testing; add your Gmail under **Test users**, then retry login.
 - **insufficient authentication scopes** — (a) re-login with `--scopes` so `gws auth status` lists calendar; (b) re-export + `make remote-deploy`; (c) if status looks good but API still 403, delete stale `secrets/google/token_cache.json` on the server (deploy sync now clears it automatically).
+- **`Failed to set permissions on token directory ... Operation not permitted (os error 1)`** — not a Google scope problem. gws insists on `chmod 0700` for its token cache dir; that fails when `GOOGLE_WORKSPACE_CLI_CONFIG_DIR` is the secrets bind mount (especially Docker Desktop on Windows). Compose points config at `/zeroclaw-scratch/gws` (tmpfs) and keeps `CREDENTIALS_FILE` on the mount. Apply with `docker compose up -d` (recreate) — no re-auth needed if `credentials.json` is already good.
 - **`expected value at line 1 column 1` / Bad authorized user secret** — `credentials.json` is UTF-16 (PowerShell `>`). Re-export with `[System.IO.File]::WriteAllText(...)`, then `make remote-deploy`.
 - **gws: not found** — rebuild (`make build` / `make remote-deploy`).
 - **Auth / 401** — re-export `credentials.json` after a successful login, redeploy.
 - **Permission denied on secrets/** — readable by `ZEROCLAW_UID` on the server.
 - **Tool blocked** — `google_workspace` must be in `risk_profiles.default.auto_approve` (template includes it).
-- **Can't delete calendar events / `Failed to create output file: Permission denied (os error 13)`** — a *delete* returns an empty `204`, which gws writes to a file **in its working directory**. The image WORKDIR (`/zeroclaw-data`) is root-owned, so the write fails. Fixed by `working_dir: /zeroclaw-data/data` (a deploy-user-owned bind mount) in `docker-compose.yml`. This is **not** a scope issue — moving/rescheduling events (incl. UTC→local timezone fixes via `events patch`) already works with the `calendar` scope. Apply with `make remote-sync` + `make remote-up` (compose change → recreate).
+- **Can't delete calendar events / `Failed to create output file: Permission denied (os error 13)`** — a *delete* returns an empty `204`, which gws writes to a file **in its working directory**. The image WORKDIR is not writable by the deploy UID. Fixed by `working_dir: /zeroclaw-scratch` (tmpfs `mode=1777`) in `docker-compose.yml`. This is **not** a scope issue — moving/rescheduling events already works with the `calendar` scope. Apply with `make remote-sync` + `make remote-up` (compose change → recreate).
 - **Can't delete emails** — `gmail.modify` lets Tim **trash** mail (reversible; Google auto-purges Trash after ~30 days) but **cannot** permanently delete or empty Trash. For true permanent delete, re-login adding the broad `https://mail.google.com/` scope (full mailbox access — powerful; prefer trash). If "delete" fails, it's usually Tim calling the hard-delete method instead of trash — a prompting matter, not a block.
 - **Want read-only later** — add `[[google_workspace.allowed_operations]]` (e.g. Gmail `messages` list/get only).

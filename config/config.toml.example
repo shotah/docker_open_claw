@@ -15,10 +15,35 @@ model = "gemini-3.5-flash"
 enabled = true
 model_provider = "gemini.default"
 risk_profile = "default"
+runtime_profile = "telegram_lean"
 channels = ["telegram.default"]
 # Grant MCP servers to this agent. ZeroClaw is secure-by-default: servers in
 # [mcp] are registered but only reach an agent via a bundle (see [mcp_bundles]).
 mcp_bundles = ["strava", "garmin", "google-search"]
+
+# Bound Telegram session history so fat tool dumps (gws calendar JSON, etc.)
+# don't poison the prompt. Gemini's large window is not the issue — tool spam is.
+# Send /new in Telegram for a hard session reset. See docs/telegram.md.
+[runtime_profiles.telegram_lean]
+agentic = true
+max_history_messages = 40
+keep_tool_context_turns = 2
+max_tool_result_chars = 6000
+max_tool_iterations = 12
+
+[runtime_profiles.telegram_lean.history_pruning]
+enabled = true
+keep_recent = 6
+max_tokens = 12000
+collapse_tool_results = true
+
+[runtime_profiles.telegram_lean.context_compression]
+enabled = true
+threshold_ratio = 0.35
+protect_first_n = 2
+protect_last_n = 6
+summary_max_chars = 3000
+tool_result_retrim_chars = 1500
 
 [channels.telegram.default]
 enabled = true

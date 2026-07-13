@@ -44,9 +44,13 @@ services:
       # Gemini Google Search MCP (zchee) inherits these — same key as chat.
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
-      # gws in Docker: file keyring + exported OAuth creds (see docs/google-workspace.md)
+      # gws in Docker: file keyring + exported OAuth creds (see docs/google-workspace.md).
+      # CONFIG_DIR must be a real Linux FS (tmpfs), not the secrets bind mount: gws chmod 0700
+      # the token dir, and Docker Desktop / some bind mounts return EPERM (os error 1).
+      # CREDENTIALS_FILE stays on the mount; the token cache is ephemeral and rebuilt from
+      # the refresh token in credentials.json after each recreate.
       GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND: file
-      GOOGLE_WORKSPACE_CLI_CONFIG_DIR: /zeroclaw-data/.config/gws
+      GOOGLE_WORKSPACE_CLI_CONFIG_DIR: /zeroclaw-scratch/gws
       GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE: /zeroclaw-data/.config/gws/credentials.json
       # Strava MCP subprocess inherits these (see docs/strava.md). Token persists on the mount.
       STRAVA_CLIENT_ID: ${STRAVA_CLIENT_ID:-}

@@ -74,6 +74,33 @@ lists agent `main`. Then message again.
 
 ---
 
+## In-chat commands
+
+| Command | What it does |
+|---|---|
+| `/new` | Clear **this sender’s** conversation history and start a fresh session |
+| `/model` / `/models` | Show or switch the model for this sender (upstream ZeroClaw) |
+
+Use **`/new`** when Tim dumps huge JSON/transcripts, loops on the same tool error, or
+ignores a clear ask. That is usually a poisoned session, not a broken deploy —
+reset and ask one concrete thing again.
+
+---
+
+## Session size (`telegram_lean`)
+
+`config.toml` binds `agents.main` to `[runtime_profiles.telegram_lean]`:
+
+- Cap history (`max_history_messages = 40`)
+- Keep full tool payloads only for the last couple of turns
+- Trim huge single tool results (Gmail/Calendar dumps)
+- Enable history pruning + earlier context compression
+
+Gemini’s large context window does **not** replace these bounds — fat tool results
+still make answers worse. `/new` remains the hard reset.
+
+---
+
 ## Security
 
 - Keep `TELEGRAM_ALLOWED_USERS` non-empty — an empty allowlist may mean “allow all” depending on ZeroClaw version.

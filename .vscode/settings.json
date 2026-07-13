@@ -50,6 +50,7 @@
   "cSpell.language": "en",
   "cSpell.ignorePaths": [".git", "data/**", "LICENSE"],
   "cSpell.words": [
+    "agentic",
     "allowlist",
     "arketa",
     "BotFather",
@@ -73,6 +74,7 @@
     "mem_reservation",
     "openclaw",
     "OpenSSH",
+    "retrim",
     "rsync",
     "scp",
     "Stealinglight",
