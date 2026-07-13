@@ -10,6 +10,14 @@ secrets/google/*
 !secrets/google/.gitkeep
 !secrets/google/.gitignore
 
+# Google Workspace MCP tokens (never commit)
+secrets/google-mcp/**
+!secrets/google-mcp/.gitkeep
+!secrets/google-mcp/.gitignore
+!secrets/google-mcp/credentials/
+!secrets/google-mcp/credentials/.gitkeep
+!secrets/google-mcp/credentials/.gitignore
+
 # Strava OAuth token (never commit)
 secrets/strava/*
 !secrets/strava/.gitkeep

@@ -1,169 +1,92 @@
-# Google Workspace APIs (personal Gmail is fine)
+# Google Workspace (Gmail / Calendar / Docs / Drive)
 
-This is **not** “you need Google Workspace for Business.”
+Tim talks to Google through a **compiled Go MCP binary**:
+[`magks/google-workspace-mcp-go`](https://github.com/magks/google-workspace-mcp-go)
+(stdio, static build, baked into the image like Strava/Garmin).
 
-A normal `@gmail.com` account works. You still create a **free Google Cloud
-project** so OAuth can talk to Gmail / Docs / Calendar APIs. That project is
-just an API keyring for *your* login — no company domain, no admin console,
-no service account.
+The built-in ZeroClaw `google_workspace` tool (raw `gws`) is **disabled** —
+it rejects camelCase methods such as `batchUpdate`, so Docs writes fail before
+they reach Google. Prefer this MCP.
 
-ZeroClaw’s `:latest` image is **distroless** (Debian glibc). This repo keeps
-that base and copies in only the [`gws`](https://github.com/googleworkspace/cli)
-binary. Do not commit `secrets/google/`.
-
----
-
-## Host dependencies (auth machine only)
-
-These stay on your laptop / Windows box — **not** in the Docker image.
-
-| Tool | Why | Install |
-|---|---|---|
-| [Google Cloud SDK](https://cloud.google.com/sdk) (`gcloud`) | `gws auth setup` can create/select the project and enable APIs | Windows: `choco install gcloudsdk` · macOS: `brew install --cask google-cloud-sdk` · Linux: [apt/yum install](https://cloud.google.com/sdk/docs/install) |
-| [`gws`](https://github.com/googleworkspace/cli) | OAuth login + `auth export` for `secrets/google/credentials.json` | [Releases](https://github.com/googleworkspace/cli/releases) or `npm install -g @googleworkspace/cli` |
-
-After Chocolatey / brew, open a **new** shell so `gcloud` is on `PATH`, then:
-
-```bash
-gcloud auth login
-gcloud config set project YOUR_PROJECT_ID
+```mermaid
+flowchart LR
+  ZC[zeroclaw daemon] -->|MCP stdio| GW[google-workspace-mcp-go]
+  GW -->|OAuth2 HTTPS| API[Google APIs]
+  GW --- TOK[("secrets/google-mcp/credentials")]
 ```
 
-Reuse whatever project you already have in Cloud Console (no need to create another).
-
 ---
 
-## Personal Gmail vs Workspace
+## What Tim can do (core tier)
 
-| You have | What to do |
+Config loads `--tools gmail drive calendar docs sheets tasks contacts` with
+`--tool-tier core` (~45 tools). Useful examples:
+
+| Ask | Tool (approx.) |
 |---|---|
-| Normal Gmail (`you@gmail.com`) | Follow this guide (External OAuth + test user = you) |
-| Google Workspace (company) | Same OAuth flow; skip domain-wide delegation |
-| Want Tim isolated | Separate Gmail + share Drive/Calendar — still this OAuth path |
+| “What’s unread?” | `search_gmail_messages` / `get_gmail_message_content` |
+| “What’s on my calendar Friday?” | `get_events` |
+| “Update the Seattle itinerary doc” | `modify_doc_text` / `find_and_replace_doc` |
+| “Create a sheet of …” | `create_spreadsheet` / `modify_sheet_values` |
+
+Bump to `--tool-tier extended` or `complete` in `config.toml` if you need
+rarer ops (then recreate the container).
 
 ---
 
-## 1. Build the thin image
+## 1. OAuth client (once)
 
-```bash
-make build
-# or: docker compose build
-```
+Reuse the **Desktop** OAuth client you already use for `gws`
+(`secrets/google/client_secret.json`), or create one:
 
-Remote:
+1. [Google Cloud Console](https://console.cloud.google.com/) → same project
+2. Enable APIs you need (Gmail, Calendar, Docs, Drive, Sheets, Tasks, People, …)
+3. OAuth consent (External + your Gmail as test user while in Testing)
+4. Credentials → OAuth client ID → **Desktop app**
 
-```bash
-make remote-deploy   # syncs Dockerfile + compose + secrets, then build + up
+Put into `.env`:
+
+```env
+GOOGLE_OAUTH_CLIENT_ID=….apps.googleusercontent.com
+GOOGLE_OAUTH_CLIENT_SECRET=GOCSPX-…
+USER_GOOGLE_EMAIL=you@gmail.com
 ```
 
 ---
 
-## 2. Free Google Cloud project (once)
+## 2. Import tokens from existing `gws` export (recommended)
 
-Reuse an existing project if you have one (e.g. already in Cloud Console).
-Use the **same Google account** Tim should act as (your personal Gmail).
-
-**Fast path (needs `gcloud` + `gws`):**
+If you already have `secrets/google/credentials.json` from `gws auth export`:
 
 ```bash
-gcloud auth login
-gcloud config set project YOUR_PROJECT_ID
-gws auth setup       # enables APIs / wires OAuth where possible
-gws auth login --services gmail,calendar,docs,drive,sheets,tasks,people
+make google-mcp-import
 ```
 
-**Manual path (Cloud Console):**
+That writes
+`secrets/google-mcp/credentials/<USER_GOOGLE_EMAIL>.json` in the MCP’s
+on-disk format (refresh token + client id/secret). No browser step.
 
-1. Open [Google Cloud Console](https://console.cloud.google.com/) and create or select a project.
-2. Enable APIs (APIs & Services → Library):
-   - Gmail API
-   - Google Calendar API
-   - Google Docs API
-   - Google Drive API
-   - Google Sheets API
-   - Google Tasks API
-   - People API
-3. **OAuth consent screen**
-   - User type: **External** (required for consumer Gmail)
-   - App name / support email: yours
-   - Scopes: you can leave default for now; `gws auth login` will request what it needs
-   - **Test users:** add your Gmail address (required while the app is in Testing)
-   - Publishing status can stay **Testing** forever for personal use
-4. **Credentials** → Create credentials → **OAuth client ID**
-   - Application type: **Desktop app**
-   - Download the JSON (or note client id/secret for `gws`)
+Then deploy:
 
-You are not enabling “Google Workspace” as a product. You are only turning on
-APIs that personal Gmail already uses.
+```bash
+make remote-deploy   # or: make build && make up
+```
+
+Send **`/new`** in Telegram so Tim drops the old broken `google_workspace` habit.
 
 ---
 
-## 3. Auth on a browser machine (once)
+## 3. Fresh browser auth (only if you have no gws export)
 
-Install `gws` on Windows/macOS/Linux (not inside distroless):
+In-container OAuth callbacks bind a **random localhost port**, so remote Docker
+auth is awkward. Prefer importing from `gws` (above).
 
-```bash
-# https://github.com/googleworkspace/cli/releases
-# or: npm install -g @googleworkspace/cli
-```
-
-### Windows PowerShell (this repo)
-
-`--services` / `--full` have been falling through to **profile-only** scopes on
-this setup. Use explicit **`--scopes`** so the browser asks for Calendar/Gmail.
-
-Copy-paste from the repo root:
-
-```powershell
-# 1) Login — browser must show Calendar / Gmail / Drive permissions
-gws auth logout
-gws auth login --scopes "https://www.googleapis.com/auth/calendar,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/documents,https://www.googleapis.com/auth/drive,https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/tasks,https://www.googleapis.com/auth/contacts"
-
-# 2) Confirm (must list calendar/gmail/drive — not only userinfo.*)
-gws auth status
-
-# 3) Export UTF-8 for Docker (do NOT use ">" — that writes UTF-16)
-mkdir -Force secrets\google | Out-Null
-$json = gws auth export --unmasked 2>$null
-if (-not $json) { $json = (gws auth export --unmasked | Out-String) }
-[System.IO.File]::WriteAllText(
-  "$PWD\secrets\google\credentials.json",
-  "$json".Trim(),
-  [System.Text.UTF8Encoding]::new($false)
-)
-
-# 4) Deploy
-make remote-deploy
-```
-
-In the Google consent UI, accept **Calendar**, **Gmail**, **Drive**, etc.
-If those never appear: Cloud Console → APIs & Services → **OAuth consent screen**
-→ add those scopes → save → login again.
-
-### macOS / Linux / Git Bash
-
-```bash
-gws auth logout
-gws auth login --scopes "https://www.googleapis.com/auth/calendar,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/documents,https://www.googleapis.com/auth/drive,https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/tasks,https://www.googleapis.com/auth/contacts"
-gws auth status
-
-mkdir -p secrets/google
-gws auth export --unmasked > secrets/google/credentials.json
-
-make remote-deploy
-```
-
-### Smoke checks (after deploy)
-
-```bash
-make remote-ssh CMD="docker compose exec -T zeroclaw gws auth status"
-make remote-ssh CMD="docker compose exec -T zeroclaw gws calendar calendarList list"
-```
-
-(Distroless has no shell; `exec` still works for a direct binary argv.)
-
-If Google says the app isn’t verified: Advanced → Continue (normal while OAuth
-consent is in Testing). Add yourself as a **Test user** on the consent screen.
+If you must re-consent: run the binary on a machine with a browser, set
+`WORKSPACE_MCP_CREDENTIALS_DIR` to this repo’s
+`secrets/google-mcp/credentials`, then use an MCP client to call
+`start_google_auth` (needs gmail tools + usually `complete` tier for that tool).
+Copy the resulting `you@gmail.com.json` into `secrets/google-mcp/credentials/`
+and deploy.
 
 ---
 
@@ -171,31 +94,53 @@ consent is in Testing). Add yourself as a **Test user** on the consent screen.
 
 ```toml
 [google_workspace]
-enabled = true
-allowed_services = ["gmail", "calendar", "docs", "drive", "sheets", "tasks", "people"]
-credentials_path = "/zeroclaw-data/.config/gws/credentials.json"
-# no allowed_operations → all methods for those services
+enabled = false
+
+[[mcp.servers]]
+name = "google-workspace"
+transport = "stdio"
+command = "google-workspace-mcp-go"
+args = ["--tools", "gmail drive calendar docs sheets tasks contacts", "--tool-tier", "core"]
+
+[mcp_bundles.google-workspace]
+servers = ["google-workspace"]
+
+[agents.main]
+mcp_bundles = ["google-workspace", "strava", "garmin", "google-search"]
 ```
 
-Compose mounts `./secrets/google` → `/zeroclaw-data/.config/gws` for
-`credentials.json`. The gws **token cache** lives on tmpfs at
-`/zeroclaw-scratch/gws` (`GOOGLE_WORKSPACE_CLI_CONFIG_DIR`) so `chmod 0700`
-succeeds — bind mounts often cannot set Unix mode bits.
+Compose mounts `./secrets/google-mcp` → `/zeroclaw-data/.config/google-mcp` and
+sets `WORKSPACE_MCP_CREDENTIALS_DIR`, `GOOGLE_OAUTH_*`, `USER_GOOGLE_EMAIL`.
 
-Then ask Tim over Telegram, e.g. “What’s unread?” or “Summarize the doc titled …”.
+---
+
+## Legacy `gws` CLI (optional)
+
+The image still includes `gws` for `docker compose exec` smoke tests. Host auth
+export remains useful as the source for `make google-mcp-import`.
+
+Windows export (UTF-8):
+
+```powershell
+gws auth login --scopes "https://www.googleapis.com/auth/calendar,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/documents,https://www.googleapis.com/auth/drive,https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/tasks,https://www.googleapis.com/auth/contacts"
+$json = gws auth export --unmasked 2>$null
+if (-not $json) { $json = (gws auth export --unmasked | Out-String) }
+[System.IO.File]::WriteAllText("$PWD\secrets\google\credentials.json", $json.Trim() + "`n")
+```
 
 ---
 
 ## Troubleshooting
 
-- **Access blocked / app not verified** — consent screen is in Testing; add your Gmail under **Test users**, then retry login.
-- **insufficient authentication scopes** — (a) re-login with `--scopes` so `gws auth status` lists calendar; (b) re-export + `make remote-deploy`; (c) if status looks good but API still 403, delete stale `secrets/google/token_cache.json` on the server (deploy sync now clears it automatically).
-- **`Failed to set permissions on token directory ... Operation not permitted (os error 1)`** — not a Google scope problem. gws insists on `chmod 0700` for its token cache dir; that fails when `GOOGLE_WORKSPACE_CLI_CONFIG_DIR` is the secrets bind mount (especially Docker Desktop on Windows). Compose points config at `/zeroclaw-scratch/gws` (tmpfs) and keeps `CREDENTIALS_FILE` on the mount. Apply with `docker compose up -d` (recreate) — no re-auth needed if `credentials.json` is already good.
-- **`expected value at line 1 column 1` / Bad authorized user secret** — `credentials.json` is UTF-16 (PowerShell `>`). Re-export with `[System.IO.File]::WriteAllText(...)`, then `make remote-deploy`.
-- **gws: not found** — rebuild (`make build` / `make remote-deploy`).
-- **Auth / 401** — re-export `credentials.json` after a successful login, redeploy.
+- **Docs write fails with “only lowercase…” / `batchUpdate`** — that’s the
+  **built-in** tool. Confirm `[google_workspace] enabled = false` and that Tim
+  is using MCP tools (`modify_doc_text`, etc.). `/new` after deploy.
+- **MCP auth / 401** — re-run `make google-mcp-import` after a fresh
+  `gws auth export`, or re-consent with scopes that include Docs.
+- **Tim ignores Workspace MCP** — `mcp_bundles` must include
+  `google-workspace`; `[mcp] deferred_loading = false`.
+- **Too many tools / context bloat** — keep `--tool-tier core`; drop unused
+  services from `--tools`.
+- **`gws: not found` / legacy CLI** — rebuild image; MCP path does not need
+  `gws` at runtime.
 - **Permission denied on secrets/** — readable by `ZEROCLAW_UID` on the server.
-- **Tool blocked** — `google_workspace` must be in `risk_profiles.default.auto_approve` (template includes it).
-- **Can't delete calendar events / `Failed to create output file: Permission denied (os error 13)`** — a *delete* returns an empty `204`, which gws writes to a file **in its working directory**. The image WORKDIR is not writable by the deploy UID. Fixed by `working_dir: /zeroclaw-scratch` (tmpfs `mode=1777`) in `docker-compose.yml`. This is **not** a scope issue — moving/rescheduling events already works with the `calendar` scope. Apply with `make remote-sync` + `make remote-up` (compose change → recreate).
-- **Can't delete emails** — `gmail.modify` lets Tim **trash** mail (reversible; Google auto-purges Trash after ~30 days) but **cannot** permanently delete or empty Trash. For true permanent delete, re-login adding the broad `https://mail.google.com/` scope (full mailbox access — powerful; prefer trash). If "delete" fails, it's usually Tim calling the hard-delete method instead of trash — a prompting matter, not a block.
-- **Want read-only later** — add `[[google_workspace.allowed_operations]]` (e.g. Gmail `messages` list/get only).

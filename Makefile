@@ -22,7 +22,7 @@ else
   REMOTE := bash scripts/remote.sh
 endif
 
-.PHONY: help env env-force dirs init sync-config config build pull up down restart logs ps status shell clean strava-auth garmin-auth \
+.PHONY: help env env-force dirs init sync-config config build pull up down restart logs ps status shell clean strava-auth garmin-auth google-mcp-import \
         remote-check remote-sync remote-up remote-down remote-restart remote-logs remote-ps remote-status \
         remote-pull remote-ssh remote-deploy remote-bind
 
@@ -73,6 +73,7 @@ help: ## Show available commands
 	@echo     clean                  Same as down (keeps ./data)
 	@echo     strava-auth            One-time Strava OAuth; writes secrets/strava/tokens.json
 	@echo     garmin-auth            One-time Garmin login; writes secrets/garmin/session.json
+	@echo     google-mcp-import      Import gws credentials.json into google-mcp token dir
 	@echo.
 	@echo   Remote deploy  (needs OpenSSH; see docs/deploy.md)
 	@echo   --------------------------------------------------
@@ -94,7 +95,7 @@ help: ## Show available commands
 	@echo   ----
 	@echo     docs/telegram.md       BotFather + Telegram peers
 	@echo     docs/whatsapp.md       WhatsApp Web friend / group (optional)
-	@echo     docs/google-workspace.md Thin gws image + OAuth (Gmail/Docs/…)
+	@echo     docs/google-workspace.md Go MCP + OAuth import (Gmail/Docs/…)
 	@echo     docs/strava.md         Strava workouts via strava-mcp (optional)
 	@echo     docs/garmin.md         Garmin sleep/weight via go-garmin MCP (optional)
 	@echo     docs/deploy.md         Windows -^> Ubuntu remote deploy
@@ -176,6 +177,13 @@ strava-auth: ## One-time Strava OAuth in a throwaway container (see docs/strava.
 garmin-auth: ## One-time Garmin login; writes secrets/garmin/session.json (see docs/garmin.md)
 	@echo Garmin interactive login (email / password / MFA). Session lands in secrets/garmin/.
 	$(COMPOSE) run --rm --build -it --entrypoint garmin $(SERVICE) login
+
+google-mcp-import: ## Import gws credentials into secrets/google-mcp (see docs/google-workspace.md)
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/google-mcp-import.ps1
+else
+	bash scripts/google-mcp-import.sh
+endif
 
 # --- Remote Ubuntu server (from Windows via OpenSSH) -------------------------
 

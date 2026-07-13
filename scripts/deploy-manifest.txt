@@ -12,6 +12,8 @@ config/config.toml.example
 config/config.toml
 scripts/sync-config.js
 scripts/deploy-manifest.txt
+scripts/google-mcp-import.ps1
+scripts/google-mcp-import.sh
 docs/telegram.md
 docs/whatsapp.md
 docs/google-workspace.md
@@ -24,6 +26,9 @@ README.md
 secrets/google/.gitkeep
 secrets/google/credentials.json
 secrets/google/client_secret.json
+secrets/google-mcp/.gitkeep
+secrets/google-mcp/credentials/.gitkeep
+secrets/google-mcp/credentials/christopherblodgett@gmail.com.json
 secrets/strava/.gitkeep
 secrets/strava/tokens.json
 secrets/garmin/.gitkeep

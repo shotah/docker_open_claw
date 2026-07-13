@@ -174,7 +174,7 @@ Everything lives in [`./docs`](docs). Start with Telegram, add the rest as neede
 |---|---|---|
 | 📨 **[docs/telegram.md](docs/telegram.md)** | BotFather token, numeric user id, schema-v3 `peer_groups` allowlist, `make remote-bind` pairing, `/new` session reset, `telegram_lean` history bounds | **Always** — this is the default channel |
 | 🚀 **[docs/deploy.md](docs/deploy.md)** | Ubuntu server prep, UID/GID ownership, OpenSSH on Windows, the `make remote-*` workflow | Running on a real server |
-| 🗂️ **[docs/google-workspace.md](docs/google-workspace.md)** | Free Cloud project, OAuth scopes, `gws auth login/export`, UTF-8 credential export, smoke tests, troubleshooting | Gmail / Docs / Calendar / Drive access |
+| 🗂️ **[docs/google-workspace.md](docs/google-workspace.md)** | Go MCP (`google-workspace-mcp-go`), OAuth import from gws export, Docs/Gmail/Calendar tools | Gmail / Docs / Calendar / Drive |
 | 🏃 **[docs/strava.md](docs/strava.md)** | Strava API app, `strava-mcp` OAuth, token mount, MCP wiring | Workout summaries & training nudges |
 | ⌚ **[docs/garmin.md](docs/garmin.md)** | go-garmin MCP, `make garmin-auth`, sleep / weight / readiness | Physiological recovery + scale weight |
 | 💬 **[docs/whatsapp.md](docs/whatsapp.md)** | Web vs Cloud API (upstream selectors), `mode=personal`, peers/groups, when to skip WhatsApp | Reaching friends who don't use Telegram |

@@ -1,5 +1,5 @@
 # Lean ZeroClaw stack — Gemini + Telegram, no host ports (Telegram polls).
-# Image: distroless upstream + gws + strava-mcp + garmin + gemini-search (see Dockerfile).
+# Image: distroless upstream + gws + google-workspace-mcp-go + strava + garmin + gemini-search.
 # Docs: docs/telegram.md, docs/google-workspace.md, docs/strava.md, docs/garmin.md, docs/web-search.md
 
 services:
@@ -15,16 +15,13 @@ services:
         - STRAVA_MCP_VERSION
         - GARMIN_MCP_REF
         - GEMINI_SEARCH_MCP_REF
+        - GOOGLE_WORKSPACE_MCP_REF
     image: ${ZEROCLAW_IMAGE:-zeroclaw-gws:local}
     container_name: zeroclaw
     restart: unless-stopped
     # Match the deploy user on the server (id -u / id -g). Avoids UID 65534 data fights.
     user: "${ZEROCLAW_UID:-1000}:${ZEROCLAW_GID:-1000}"
-    # Run from a writable scratch dir. gws writes the empty 204 body of a *delete*
-    # (e.g. `calendar events delete`) to a file in its CWD; the image WORKDIR and the
-    # bind mounts aren't writable by this uid, so that fails with "os error 13
-    # Permission denied" and the delete never lands. A world-writable tmpfs (below)
-    # gives gws somewhere to write, so deletes succeed. See docs/google-workspace.md.
+    # Writable CWD for leftover gws CLI deletes (docs/google-workspace.md).
     working_dir: /zeroclaw-scratch
     env_file:
       - path: .env
@@ -44,13 +41,13 @@ services:
       # Gemini Google Search MCP (zchee) inherits these — same key as chat.
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
-      # gws in Docker: file keyring + exported OAuth creds (see docs/google-workspace.md).
-      # CONFIG_DIR must be a real Linux FS (tmpfs), not the secrets bind mount: gws chmod 0700
-      # the token dir, and Docker Desktop / some bind mounts return EPERM (os error 1).
-      # CREDENTIALS_FILE stays on the mount; the token cache is ephemeral and rebuilt from
-      # the refresh token in credentials.json after each recreate.
+      # Google Workspace MCP (magks) — OAuth client + token dir (docs/google-workspace.md).
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      USER_GOOGLE_EMAIL: ${USER_GOOGLE_EMAIL:-}
+      WORKSPACE_MCP_CREDENTIALS_DIR: /zeroclaw-data/.config/google-mcp/credentials
+      # Optional legacy gws CLI (docker exec). Prefer the MCP for Tim.
       GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND: file
-      GOOGLE_WORKSPACE_CLI_CONFIG_DIR: /zeroclaw-scratch/gws
       GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE: /zeroclaw-data/.config/gws/credentials.json
       # Strava MCP subprocess inherits these (see docs/strava.md). Token persists on the mount.
       STRAVA_CLIENT_ID: ${STRAVA_CLIENT_ID:-}
@@ -62,15 +59,18 @@ services:
       - ./config:/zeroclaw-data/.zeroclaw
       # Workspace / memory
       - ./data:/zeroclaw-data/data
-      # Google OAuth export (gitignored). Create via docs/google-workspace.md
-      - ./secrets/google:/zeroclaw-data/.config/gws
+      # Google Workspace MCP OAuth tokens (gitignored). Import via make google-mcp-import.
+      - ./secrets/google-mcp:/zeroclaw-data/.config/google-mcp
+      # Optional legacy gws CLI export (gitignored).
+      - ./secrets/google/credentials.json:/zeroclaw-data/.config/gws/credentials.json:ro
+      - ./secrets/google/client_secret.json:/zeroclaw-data/.config/gws/client_secret.json:ro
       # Strava OAuth token (gitignored). Create via docs/strava.md
       - ./secrets/strava:/zeroclaw-data/.config/strava
       # Garmin Connect session (gitignored). Create via docs/garmin.md / make garmin-auth
       - ./secrets/garmin:/zeroclaw-data/.config/garmin
-    # Ephemeral, world-writable scratch for gws output files (see working_dir above).
     tmpfs:
       - /zeroclaw-scratch:mode=1777
+      - /zeroclaw-data/.config/gws:uid=${ZEROCLAW_UID:-1000},gid=${ZEROCLAW_GID:-1000},mode=0700
     mem_limit: 512m
     cpus: 2.0
     mem_reservation: 32m

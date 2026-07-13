@@ -19,10 +19,9 @@ runtime_profile = "telegram_lean"
 channels = ["telegram.default"]
 # Grant MCP servers to this agent. ZeroClaw is secure-by-default: servers in
 # [mcp] are registered but only reach an agent via a bundle (see [mcp_bundles]).
-mcp_bundles = ["strava", "garmin", "google-search"]
+mcp_bundles = ["google-workspace", "strava", "garmin", "google-search"]
 
-# Bound Telegram session history so fat tool dumps (gws calendar JSON, etc.)
-# don't poison the prompt. Gemini's large window is not the issue — tool spam is.
+# Bound Telegram session history so fat tool dumps don't poison the prompt.
 # Send /new in Telegram for a hard session reset. See docs/telegram.md.
 [runtime_profiles.telegram_lean]
 agentic = true
@@ -55,35 +54,30 @@ channel = "telegram.default"
 agents = ["main"]
 external_peers = []
 
-# Full Google Workspace via gws (docs/google-workspace.md).
-# Empty allowed_operations = all methods for the listed services.
+# Built-in google_workspace (gws) is OFF — ZeroClaw rejects camelCase methods
+# like batchUpdate, so Docs writes fail. Prefer the Go MCP below.
 [google_workspace]
-enabled = true
-credentials_path = "/zeroclaw-data/.config/gws/credentials.json"
-allowed_services = [
-  "gmail",
-  "calendar",
-  "docs",
-  "drive",
-  "sheets",
-  "tasks",
-  "people",
-]
-timeout_secs = 90
-audit_log = true
+enabled = false
 
-# Strava workout data via the strava-mcp MCP server (docs/strava.md).
-# Garmin Connect (sleep / weight / readiness) via go-garmin (docs/garmin.md).
-# Google Search via Gemini grounding (docs/web-search.md) — same GEMINI_API_KEY.
-# ZeroClaw launches each binary over stdio. Strava creds come from the container
-# env; Garmin uses secrets/garmin/session.json on the mount (HOME=/zeroclaw-data).
+# Google Workspace via magks/google-workspace-mcp-go (docs/google-workspace.md).
+# Strava / Garmin / Google Search MCP servers (see their docs).
+# ZeroClaw launches each binary over stdio.
 [mcp]
 enabled = true
 # false = load MCP tool schemas eagerly so the model always sees them.
-# With true, the model must call the built-in `tool_search` to activate MCP
-# tools first; Gemini Flash doesn't reliably do that, so Strava tools appear
-# "missing" and it falls back to Gmail (see docs/strava.md troubleshooting).
 deferred_loading = false
+
+[[mcp.servers]]
+name = "google-workspace"
+transport = "stdio"
+command = "google-workspace-mcp-go"
+# core tier ≈ 45 tools; include services Tim uses day-to-day.
+args = [
+  "--tools",
+  "gmail drive calendar docs sheets tasks contacts",
+  "--tool-tier",
+  "core",
+]
 
 [[mcp.servers]]
 name = "strava"
@@ -101,8 +95,9 @@ name = "google-search"
 transport = "stdio"
 command = "mcp-gemini-google-search"
 
-# Bundle that grants the "strava" MCP server. Referenced by agents.main.mcp_bundles.
-# Without this grant the agent sees zero Strava tools and improvises (e.g. Gmail).
+[mcp_bundles.google-workspace]
+servers = ["google-workspace"]
+
 [mcp_bundles.strava]
 servers = ["strava"]
 
@@ -119,31 +114,10 @@ enabled = false
 
 # Web access for Tim's `web_fetch` tool. Matching is by domain (exact or
 # subdomain) — no scheme, no path. `blocked_domains` ALWAYS wins over allowed.
-#
-# The widest possible whitelist is just ["*"] (every public site) — that's the
-# default and what we keep here so Tim is never "locked off" and you avoid the
-# onesie-twosie churn. Use `blocked_domains` to ban specific sites.
-#
-# If you ever want the opposite (a strict allowlist — Tim may ONLY reach these),
-# comment out the ["*"] line and uncomment the curated list below.
 [web_fetch]
 allowed_domains = ["*"]
-# allowed_domains = [
-#   "strava.com",
-#   "github.com",
-#   "wikipedia.org",
-#   "arketa.co",              # ROQ / yoga class booking
-#   "boulderingproject.com",  # bouldering gym
-#   # "your-yoga-studio.com", # add your studio's domain
-# ]
 blocked_domains = [
-  # Sites Tim must never fetch, even though allowed_domains = ["*"]:
-  # "facebook.com",
-  # "x.com",
 ]
-# Internal/LAN hosts are blocked by default (SSRF protection). List any you
-# want Tim to reach, e.g. a home server: allowed_private_hosts = ["nas.local"]
-# allowed_private_hosts = []
 
 [gateway]
 host = "127.0.0.1"
@@ -158,8 +132,5 @@ require_pairing = false
 #   full        — no approval prompts; forbidden_paths / sandbox still apply  ← Tim
 #   yolo        — nuke all gates (shell, paths, sandbox). Overkill for a bot
 #                 that has Gmail + a Telegram allowlist; use only on a throwaway box.
-# Same idea as web_fetch allowed_domains = ["*"]: stop enumerating every tool.
 level = "full"
 auto_approve = ["*"]
-# Optional: force a prompt for specific tools even under full (rarely needed):
-# always_ask = ["shell"]
