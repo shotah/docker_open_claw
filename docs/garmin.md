@@ -81,8 +81,9 @@ docker compose run --rm --build -it --entrypoint garmin zeroclaw login
 2. On success: `Login successful.` and `secrets/garmin/session.json` on the host
    (mounted at `/zeroclaw-data/.config/garmin`).
 
-No published ports (unlike Strava’s OAuth callback). Re-run after
-`garmin logout` or if the session expires.
+No published ports (unlike Strava’s OAuth callback). Re-run if the session
+expires — `make garmin-auth` deletes any existing `session.json` first so a
+stale “already logged in” file doesn’t block refresh.
 
 ---
 
@@ -169,7 +170,7 @@ endpoint). Bouldering often shows attempts via `CLIMB_ATTEMPTED` status instead.
 | `garmin: not found` | `make build` / `make remote-deploy` |
 | `not logged in` | `make garmin-auth`; confirm `secrets/garmin/session.json` exists and was synced |
 | Every call asks for approval | Add exact `garmin__<tool>` names to `auto_approve` |
-| Auth / 401 after weeks | Session expired — re-run `make garmin-auth` |
+| Auth / 401 after weeks | Session expired — re-run `make garmin-auth` (clears stale `session.json` first) |
 | Rate limited (429) | Unofficial Connect API — ask for summaries, don’t poll |
 
 ### `OAuth2 exchange failed: 401` on `make garmin-auth`

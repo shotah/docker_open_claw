@@ -10,6 +10,7 @@ ifeq ($(OS),Windows_NT)
   ENV_COPY := powershell -NoProfile -Command "if (-not (Test-Path '$(ENV_FILE)')) { Copy-Item '$(ENV_EXAMPLE)' '$(ENV_FILE)'; Write-Host 'Created $(ENV_FILE) — edit GEMINI_API_KEY and Telegram vars' } else { Write-Host '$(ENV_FILE) already exists (use make env-force to overwrite)' }"
   ENV_FORCE := powershell -NoProfile -Command "Copy-Item '$(ENV_EXAMPLE)' '$(ENV_FILE)' -Force; Write-Host 'Overwrote $(ENV_FILE)'"
   MKDIR_DATA := powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path data/.zeroclaw, data/data | Out-Null"
+  RM_GARMIN_SESSION := powershell -NoProfile -Command "Remove-Item -Force -ErrorAction SilentlyContinue 'secrets/garmin/session.json'"
   REMOTE := powershell -NoProfile -ExecutionPolicy Bypass -File scripts/remote.ps1
 else
   ENV_COPY := @if [ -f $(ENV_FILE) ]; then \
@@ -19,6 +20,7 @@ else
               fi
   ENV_FORCE := cp $(ENV_EXAMPLE) $(ENV_FILE) && echo "Overwrote $(ENV_FILE)"
   MKDIR_DATA := mkdir -p data/.zeroclaw data/data
+  RM_GARMIN_SESSION := rm -f secrets/garmin/session.json
   REMOTE := bash scripts/remote.sh
 endif
 
@@ -174,7 +176,9 @@ strava-auth: ## One-time Strava OAuth in a throwaway container (see docs/strava.
 	@echo Opening Strava OAuth. A URL will be printed below — open it in your browser and approve.
 	$(COMPOSE) run --rm --build -p 19876:19876 --entrypoint strava-mcp $(SERVICE) auth
 
-garmin-auth: ## One-time Garmin login; writes secrets/garmin/session.json (see docs/garmin.md)
+garmin-auth: ## Garmin login; clears stale session.json then writes a fresh one (see docs/garmin.md)
+	@echo Clearing stale secrets/garmin/session.json if present...
+	-$(RM_GARMIN_SESSION)
 	@echo Garmin interactive login (email / password / MFA). Session lands in secrets/garmin/.
 	$(COMPOSE) run --rm --build -it --entrypoint garmin $(SERVICE) login
 
