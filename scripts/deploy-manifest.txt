@@ -10,6 +10,21 @@ Makefile
 Dockerfile
 config/config.toml.example
 config/config.toml
+config/agents/main/workspace/SOUL.example.md
+config/agents/main/workspace/USER.example.md
+config/agents/main/workspace/IDENTITY.example.md
+config/agents/main/workspace/AGENTS.example.md
+config/agents/main/workspace/TOOLS.example.md
+config/agents/main/workspace/MEMORY.example.md
+config/agents/main/workspace/HEARTBEAT.example.md
+# Personal (gitignored) — synced when present after `make persona`
+config/agents/main/workspace/SOUL.md
+config/agents/main/workspace/USER.md
+config/agents/main/workspace/IDENTITY.md
+config/agents/main/workspace/AGENTS.md
+config/agents/main/workspace/TOOLS.md
+config/agents/main/workspace/MEMORY.md
+config/agents/main/workspace/HEARTBEAT.md
 scripts/sync-config.js
 scripts/deploy-manifest.txt
 scripts/google-auth.ps1
@@ -24,6 +39,7 @@ docs/strava.md
 docs/garmin.md
 docs/web-search.md
 docs/models.md
+docs/persona.md
 docs/sms.md
 docs/deploy.md
 README.md

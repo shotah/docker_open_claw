@@ -175,6 +175,7 @@ Everything lives in [`./docs`](docs). Start with Telegram, add the rest as neede
 |---|---|---|
 | 📨 **[docs/telegram.md](docs/telegram.md)** | BotFather token, numeric user id, schema-v3 `peer_groups` allowlist, `make remote-bind` pairing, `/new` session reset, `telegram_lean` history bounds, long-term SQLite memory | **Always** — this is the default channel |
 | 🧠 **[docs/models.md](docs/models.md)** | Chat vs search vs embeddings; Gemini defaults; switching Gemini models; swapping chat to xAI/Grok | Changing brain / cost tuning |
+| 🎭 **[docs/persona.md](docs/persona.md)** | `SOUL.md` / `USER.md` system prompt — coach mode, identity lock, vs hybrid memory | Shaping Tim’s behavior |
 | 🚀 **[docs/deploy.md](docs/deploy.md)** | Ubuntu server prep, UID/GID ownership, OpenSSH on Windows, the `make remote-*` workflow | Running on a real server |
 | 🗂️ **[docs/google-workspace.md](docs/google-workspace.md)** | Go MCP (`google-workspace-mcp-go`), `make google-auth`, Docs/Gmail/Calendar tools | Gmail / Docs / Calendar / Drive |
 | 🏃 **[docs/strava.md](docs/strava.md)** | Strava API app, `strava-mcp` OAuth, token mount, MCP wiring | Workout summaries & training nudges |
@@ -188,6 +189,7 @@ Supporting files: [`SECURITY.md`](SECURITY.md) (hardening defaults & reporting).
 flowchart LR
   R[README] --> T[telegram.md]
   R --> M[models.md]
+  R --> P[persona.md]
   R --> D[deploy.md]
   R --> G[google-workspace.md]
   R --> S[strava.md]
@@ -201,7 +203,7 @@ flowchart LR
   D -. secrets sync .-> Ga
   classDef core fill:#1f6feb22,stroke:#1f6feb,color:#79c0ff;
   classDef opt fill:#6e768122,stroke:#6e7681,color:#8b949e;
-  class T,D,M core;
+  class T,D,M,P core;
   class G,S,Ga,W,SMS opt;
 ```
 
@@ -342,6 +344,7 @@ tim/
 │   ├── assets/banner.svg
 │   ├── telegram.md
 │   ├── models.md              # Gemini / Grok chat swap, search & embeddings
+│   ├── persona.md             # system prompt (*.example.md → make persona)
 │   ├── deploy.md
 │   ├── google-workspace.md
 │   ├── strava.md
@@ -349,6 +352,7 @@ tim/
 │   ├── web-search.md
 │   ├── sms.md                 # proposal: SMS / Twilio vs Google (not implemented)
 │   └── whatsapp.md
+├── config/agents/main/workspace/*.example.md  # Tim persona templates (personal *.md gitignored)
 └── data/                      # runtime memory/workspace (gitignored)
 ```
 

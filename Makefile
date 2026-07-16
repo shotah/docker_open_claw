@@ -5,12 +5,16 @@ SERVICE := zeroclaw
 ENV_FILE := .env
 ENV_EXAMPLE := .env.example
 CONFIG_EXAMPLE := config/config.toml.example
+PERSONA_DIR := config/agents/main/workspace
 
 ifeq ($(OS),Windows_NT)
   ENV_COPY := powershell -NoProfile -Command "if (-not (Test-Path '$(ENV_FILE)')) { Copy-Item '$(ENV_EXAMPLE)' '$(ENV_FILE)'; Write-Host 'Created $(ENV_FILE) — edit GEMINI_API_KEY and Telegram vars' } else { Write-Host '$(ENV_FILE) already exists (use make env-force to overwrite)' }"
   ENV_FORCE := powershell -NoProfile -Command "Copy-Item '$(ENV_EXAMPLE)' '$(ENV_FILE)' -Force; Write-Host 'Overwrote $(ENV_FILE)'"
   MKDIR_DATA := powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path data/.zeroclaw, data/data | Out-Null"
   RM_GARMIN_SESSION := powershell -NoProfile -Command "Remove-Item -Force -ErrorAction SilentlyContinue 'secrets/garmin/session.json'"
+  # SOUL.example.md → SOUL.md  ($$ → $ for Make; $$_ → $_ in PowerShell)
+  PERSONA_COPY := powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '$(PERSONA_DIR)' | Out-Null; Get-ChildItem '$(PERSONA_DIR)\*.example.md' | ForEach-Object { $$dest = Join-Path $$_.DirectoryName ($$_.Name.Replace('.example.md','.md')); if (-not (Test-Path $$dest)) { Copy-Item $$_.FullName $$dest; Write-Host ('Created ' + $$dest + ' — edit personal details (gitignored)') } else { Write-Host ($$dest + ' already exists (use make persona-force to overwrite)') } }"
+  PERSONA_FORCE := powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '$(PERSONA_DIR)' | Out-Null; Get-ChildItem '$(PERSONA_DIR)\*.example.md' | ForEach-Object { $$dest = Join-Path $$_.DirectoryName ($$_.Name.Replace('.example.md','.md')); Copy-Item $$_.FullName $$dest -Force; Write-Host ('Overwrote ' + $$dest) }"
   REMOTE := powershell -NoProfile -ExecutionPolicy Bypass -File scripts/remote.ps1
 else
   ENV_COPY := @if [ -f $(ENV_FILE) ]; then \
@@ -21,10 +25,24 @@ else
   ENV_FORCE := cp $(ENV_EXAMPLE) $(ENV_FILE) && echo "Overwrote $(ENV_FILE)"
   MKDIR_DATA := mkdir -p data/.zeroclaw data/data
   RM_GARMIN_SESSION := rm -f secrets/garmin/session.json
+  PERSONA_COPY := @mkdir -p $(PERSONA_DIR); \
+	for f in $(PERSONA_DIR)/*.example.md; do \
+	  [ -e "$$f" ] || continue; \
+	  dest="$(PERSONA_DIR)/$$(basename "$$f" | sed 's/\.example\.md$$/.md/')"; \
+	  if [ ! -f "$$dest" ]; then \
+	    cp "$$f" "$$dest" && echo "Created $$dest — edit personal details (gitignored)"; \
+	  else echo "$$dest already exists (use make persona-force to overwrite)"; fi; \
+	done
+  PERSONA_FORCE := @mkdir -p $(PERSONA_DIR); \
+	for f in $(PERSONA_DIR)/*.example.md; do \
+	  [ -e "$$f" ] || continue; \
+	  dest="$(PERSONA_DIR)/$$(basename "$$f" | sed 's/\.example\.md$$/.md/')"; \
+	  cp "$$f" "$$dest" && echo "Overwrote $$dest"; \
+	done
   REMOTE := bash scripts/remote.sh
 endif
 
-.PHONY: help env env-force dirs init sync-config config build pull up down restart logs ps status shell clean \
+.PHONY: help env env-force dirs init sync-config config persona persona-force build pull up down restart logs ps status shell clean \
         strava-auth garmin-auth google-auth google-mcp-import \
         remote-check remote-sync remote-up remote-down remote-restart remote-logs remote-ps remote-status \
         remote-pull remote-ssh remote-deploy remote-bind
@@ -57,10 +75,15 @@ help: ## Show available commands
 	@echo     help                   Show this help (default)
 	@echo     env                    Create .env from .env.example (skip if exists)
 	@echo     env-force              Overwrite .env from .env.example
+	@echo     persona                Create workspace *.md from *.example.md (skip if exists)
+	@echo     persona-force          Overwrite workspace *.md from examples (wipes local edits)
 	@echo     dirs                   Create ./data directories
 	@echo     config                 Install config.toml template if missing
 	@echo     sync-config            Sync model + Telegram peers into config/config.toml
-	@echo     init                   env + dirs + config + sync-config
+	@echo     init                   env + dirs + config + persona + sync-config
+	@echo.
+	@echo     docs/persona.md        SOUL/USER system prompt (examples vs personal files)
+	@echo     docs/models.md         Gemini / Grok chat provider swap
 	@echo.
 	@echo   Local Docker
 	@echo   ------------
@@ -98,6 +121,8 @@ help: ## Show available commands
 	@echo   Docs
 	@echo   ----
 	@echo     docs/telegram.md       BotFather + Telegram peers
+	@echo     docs/persona.md        Tim prompt (SOUL/USER) — examples are committed
+	@echo     docs/models.md         Chat model / Grok swap
 	@echo     docs/whatsapp.md       WhatsApp Web friend / group (optional)
 	@echo     docs/google-workspace.md Go MCP + OAuth import (Gmail/Docs/…)
 	@echo     docs/strava.md         Strava workouts via strava-mcp (optional)
@@ -128,15 +153,22 @@ else
 	else echo "config.toml already present"; fi
 endif
 
+persona: ## Create agent workspace *.md from *.example.md (skips existing)
+	$(PERSONA_COPY)
+
+persona-force: ## Overwrite agent workspace *.md from examples (destructive)
+	$(PERSONA_FORCE)
+
 sync-config: dirs ## Sync .env model + Telegram allowlist into config/config.toml
 	@node scripts/sync-config.js
 
-init: env dirs config sync-config ## First-time setup: .env, dirs, config
+init: env dirs config persona sync-config ## First-time setup: .env, dirs, config, persona
 	@echo.
 	@echo Next steps:
 	@echo   1. Edit .env — GEMINI_API_KEY, TELEGRAM_*, and DEPLOY_* for remote
-	@echo   2. Local:  make up
-	@echo   3. Remote: make remote-deploy
+	@echo   2. Edit $(PERSONA_DIR)/USER.md (and friends) — personal; gitignored
+	@echo   3. Local:  make up
+	@echo   4. Remote: make remote-deploy
 	@echo.
 	@echo Guides: docs/telegram.md   docs/whatsapp.md   docs/google-workspace.md   docs/deploy.md
 	@echo.
@@ -203,7 +235,7 @@ endif
 remote-check: ## Test SSH + Docker on DEPLOY_HOST
 	$(REMOTE) check
 
-remote-sync: sync-config ## Copy compose/.env/config to server (does not sync data volume)
+remote-sync: sync-config persona ## Copy compose/.env/config/persona to server (does not sync data volume)
 	$(REMOTE) sync
 
 remote-up: ## docker compose up -d on server

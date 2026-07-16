@@ -34,6 +34,15 @@ secrets/garmin_home_tmp/
 # Generated config + ZeroClaw pairing/agent state (synced / runtime)
 config/*
 !config/config.toml.example
+# Agent persona: commit only *.example.md templates. Live *.md are local/generated.
+!config/agents/
+config/agents/*
+!config/agents/main/
+config/agents/main/*
+!config/agents/main/workspace/
+config/agents/main/workspace/*
+!config/agents/main/workspace/*.example.md
+config/agents/main/workspace/memory/
 
 # Workspace / memory volume
 data/
