@@ -3,7 +3,7 @@
 
 param(
   [Parameter(Position = 0, Mandatory = $true)]
-  [ValidateSet('check', 'sync', 'up', 'down', 'restart', 'logs', 'ps', 'status', 'pull', 'ssh', 'bind')]
+  [ValidateSet('check', 'sync', 'sync-secret', 'up', 'down', 'restart', 'logs', 'ps', 'status', 'pull', 'ssh', 'bind')]
   [string]$Action,
 
   [Parameter(ValueFromRemainingArguments = $true)]
@@ -106,6 +106,51 @@ function Invoke-Remote([string]$RemoteCmd) {
   if ($LASTEXITCODE -ne 0) { throw "Remote command failed ($LASTEXITCODE): $RemoteCmd" }
 }
 
+function Get-ManifestPaths([string]$ManifestPath) {
+  if (-not (Test-Path -LiteralPath $ManifestPath)) {
+    throw "Missing manifest: $ManifestPath"
+  }
+  return @(
+    Get-Content -LiteralPath $ManifestPath |
+      ForEach-Object { $_.Trim() } |
+      Where-Object { $_ -and -not $_.StartsWith('#') }
+  )
+}
+
+function Ensure-RemoteParents([string[]]$RelPaths) {
+  $dirs = @('data/data')
+  $dirs += $RelPaths | ForEach-Object { ($_ -replace '\\', '/') } |
+    Where-Object { $_.Contains('/') } |
+    ForEach-Object { $_.Substring(0, $_.LastIndexOf('/')) }
+  $mkdirArg = ($dirs | Sort-Object -Unique | ForEach-Object { "'${deployPath}/$_'" }) -join ' '
+  if ($mkdirArg) {
+    Write-Host "Ensuring remote dirs under ${deployPath}"
+    Invoke-Remote "mkdir -p $mkdirArg"
+  }
+}
+
+function Copy-ToRemote([string]$RelPath) {
+  $local = Join-Path $Root $RelPath
+  if (-not (Test-Path -LiteralPath $local)) {
+    Write-Host "Skip missing $RelPath"
+    return $false
+  }
+  $norm = ($RelPath -replace '\\', '/')
+  $item = Get-Item -LiteralPath $local
+  if ($item.PSIsContainer) {
+    $parent = $norm.Substring(0, $norm.LastIndexOf('/'))
+    Invoke-Remote "mkdir -p '${deployPath}/$norm'"
+    Write-Host "scp -r $norm/"
+    # Drop the directory onto its parent so remote ends as .../credentials/
+    & $ScpExe @scpArgs -r $local "${target}:${deployPath}/$parent/"
+  } else {
+    Write-Host "scp $norm"
+    & $ScpExe @scpArgs $local "${target}:${deployPath}/$norm"
+  }
+  if ($LASTEXITCODE -ne 0) { throw "scp failed: $RelPath" }
+  return $true
+}
+
 switch ($Action) {
   'check' {
     Write-Host "Checking SSH: ${target}:${sshPort} -> ${deployPath}"
@@ -118,44 +163,45 @@ switch ($Action) {
       node (Join-Path $Root 'scripts/sync-config.js')
     }
 
-    # Single source of truth shared with remote.sh (see scripts/deploy-manifest.txt)
-    $manifest = Join-Path $Root 'scripts/deploy-manifest.txt'
-    if (-not (Test-Path -LiteralPath $manifest)) {
-      throw "Missing sync manifest: scripts/deploy-manifest.txt"
-    }
-    $files = Get-Content -LiteralPath $manifest |
-      ForEach-Object { $_.Trim() } |
-      Where-Object { $_ -and -not $_.StartsWith('#') }
-
-    # Remote dirs = runtime data dir + every parent directory in the manifest
-    $dirs = @('data/data')
-    $dirs += $files | ForEach-Object { ($_ -replace '\\', '/') } |
-      Where-Object { $_.Contains('/') } |
-      ForEach-Object { $_.Substring(0, $_.LastIndexOf('/')) }
-    $mkdirArg = ($dirs | Sort-Object -Unique | ForEach-Object { "'${deployPath}/$_'" }) -join ' '
-    Write-Host "Ensuring remote dirs under ${deployPath}"
-    Invoke-Remote "mkdir -p $mkdirArg"
+    # Code/config only - credentials use sync-secret (see secrets-manifest.txt)
+    $files = Get-ManifestPaths (Join-Path $Root 'scripts/deploy-manifest.txt')
+    Ensure-RemoteParents $files
 
     foreach ($f in $files) {
-      $local = Join-Path $Root $f
-      if (-not (Test-Path $local)) {
-        Write-Host "Skip missing $f"
-        continue
-      }
-      $remote = "${target}:${deployPath}/$f"
-      Write-Host "scp $f"
-      & $ScpExe @scpArgs $local $remote
-      if ($LASTEXITCODE -ne 0) { throw "scp failed: $f" }
+      Copy-ToRemote $f | Out-Null
     }
-
-    if (-not (Test-Path -LiteralPath (Join-Path $Root 'secrets/google/credentials.json'))) {
-      Write-Host "No secrets/google/credentials.json yet (see docs/google-workspace.md)"
-    }
-
-    # Drop stale gws token cache so a new refresh token's scopes take effect
-    Invoke-Remote "rm -f '${deployPath}/secrets/google/token_cache.json'; rm -rf '${deployPath}/secrets/google/cache'"
 
     Write-Host "Synced to ${target}:${deployPath}"
+    Write-Host "Note: token/session secrets are NOT in remote-deploy. Use make garmin-sync / strava-sync / ytmusic-sync / google-sync"
+  }
+  'sync-secret' {
+    $name = if ($Rest -and $Rest.Count -gt 0) { $Rest[0].Trim().ToLowerInvariant() } else { '' }
+    if (-not $name) {
+      throw "Usage: remote.ps1 sync-secret <garmin|strava|ytmusic|google|all>"
+    }
+    $manifest = Join-Path $Root 'scripts/secrets-manifest.txt'
+    $entries = Get-ManifestPaths $manifest | ForEach-Object {
+      $parts = $_ -split '\|', 2
+      if ($parts.Count -ne 2) { throw "Bad secrets-manifest line: $_" }
+      [pscustomobject]@{ Name = $parts[0].Trim().ToLowerInvariant(); Path = $parts[1].Trim() }
+    }
+    $wanted = if ($name -eq 'all') { $entries } else { @($entries | Where-Object { $_.Name -eq $name }) }
+    if ($wanted.Count -eq 0) {
+      $known = ($entries.Name | Sort-Object -Unique) -join ', '
+      throw "Unknown secret group '$name'. Known: $known, all"
+    }
+    Ensure-RemoteParents @($wanted.Path)
+    $copied = 0
+    foreach ($e in $wanted) {
+      if (Copy-ToRemote $e.Path) { $copied++ }
+    }
+    if ($copied -eq 0) {
+      throw "No local files found for secret group '$name' - run the matching *-auth first"
+    }
+    if ($name -eq 'google' -or $name -eq 'all') {
+      Invoke-Remote "rm -f '${deployPath}/secrets/google/token_cache.json'; rm -rf '${deployPath}/secrets/google/cache'"
+    }
+    Write-Host ("Secret group '{0}' synced to {1}:{2} ({3} paths)" -f $name, $target, $deployPath, $copied)
   }
   'up' {
     $bust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()

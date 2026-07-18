@@ -19,6 +19,8 @@ ifeq ($(OS),Windows_NT)
   ENV_FORCE := powershell -NoProfile -Command "Copy-Item '$(ENV_EXAMPLE)' '$(ENV_FILE)' -Force; Write-Host 'Overwrote $(ENV_FILE)'"
   MKDIR_DATA := powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path data/.zeroclaw, data/data | Out-Null"
   RM_GARMIN_SESSION := powershell -NoProfile -Command "Remove-Item -Force -ErrorAction SilentlyContinue 'secrets/garmin/session.json'"
+  # Non-empty DEPLOY_HOST in .env → push secrets after *-auth
+  HAS_DEPLOY_HOST := $(shell powershell -NoProfile -Command "$$l = Get-Content .env -ErrorAction SilentlyContinue | Where-Object { $$_ -match '^DEPLOY_HOST=' } | Select-Object -First 1; if ($$l -and (($$l -split '=',2)[1].Trim())) { '1' }")
   # SOUL.example.md → SOUL.md  ($$ → $ for Make; $$_ → $_ in PowerShell)
   PERSONA_COPY := powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '$(PERSONA_DIR)' | Out-Null; Get-ChildItem '$(PERSONA_DIR)\*.example.md' | ForEach-Object { $$dest = Join-Path $$_.DirectoryName ($$_.Name.Replace('.example.md','.md')); if (-not (Test-Path $$dest)) { Copy-Item $$_.FullName $$dest; Write-Host ('Created ' + $$dest + ' — edit personal details (gitignored)') } else { Write-Host ($$dest + ' already exists (use make persona-force to overwrite)') } }"
   PERSONA_FORCE := powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '$(PERSONA_DIR)' | Out-Null; Get-ChildItem '$(PERSONA_DIR)\*.example.md' | ForEach-Object { $$dest = Join-Path $$_.DirectoryName ($$_.Name.Replace('.example.md','.md')); Copy-Item $$_.FullName $$dest -Force; Write-Host ('Overwrote ' + $$dest) }"
@@ -32,6 +34,7 @@ else
   ENV_FORCE := cp $(ENV_EXAMPLE) $(ENV_FILE) && echo "Overwrote $(ENV_FILE)"
   MKDIR_DATA := mkdir -p data/.zeroclaw data/data
   RM_GARMIN_SESSION := rm -f secrets/garmin/session.json
+  HAS_DEPLOY_HOST := $(shell awk -F= '/^[[:space:]]*DEPLOY_HOST=/{v=$$2; gsub(/^[[:space:]]+|[[:space:]]+$$/,"",v); gsub(/^["'\'']|["'\'']$$/,"",v); if (v!="") print "1"}' .env 2>/dev/null)
   PERSONA_COPY := @mkdir -p $(PERSONA_DIR); \
 	for f in $(PERSONA_DIR)/*.example.md; do \
 	  [ -e "$$f" ] || continue; \
@@ -51,6 +54,7 @@ endif
 
 .PHONY: help env env-force dirs init sync-config config persona persona-force build pull up down restart logs ps status shell clean \
         strava-auth garmin-auth google-auth google-mcp-import ytmusic-auth \
+        garmin-sync strava-sync ytmusic-sync google-sync secrets-sync \
         remote-check remote-sync remote-up remote-down remote-restart remote-logs remote-ps remote-status \
         remote-pull remote-ssh remote-deploy remote-bind
 
@@ -109,11 +113,16 @@ help: ## Show available commands
 	@echo     google-auth            One-time Google OAuth via container; writes google-mcp creds
 	@echo     google-mcp-import      Legacy: import gws export into google-mcp (prefer google-auth)
 	@echo     ytmusic-auth           YouTube Music headers -^> secrets/ytmusic/headers.json
+	@echo     garmin-sync            Push secrets/garmin to DEPLOY_HOST (not part of remote-deploy)
+	@echo     strava-sync            Push secrets/strava to DEPLOY_HOST
+	@echo     ytmusic-sync           Push secrets/ytmusic to DEPLOY_HOST
+	@echo     google-sync            Push Google Workspace secrets to DEPLOY_HOST
+	@echo     secrets-sync           Push all secret groups to DEPLOY_HOST
 	@echo.
 	@echo   Remote deploy  (needs OpenSSH; see docs/deploy.md)
 	@echo   --------------------------------------------------
 	@echo     remote-check           SSH + docker available on DEPLOY_HOST?
-	@echo     remote-sync            scp compose, .env, config, secrets to server
+	@echo     remote-sync            scp compose, .env, config (NOT token/session secrets)
 	@echo     remote-up              build + up -d on server
 	@echo     remote-down            Stop stack on server
 	@echo     remote-restart         Restart stack on server
@@ -217,21 +226,57 @@ shell: ## Shell via debian image (distroless has no shell)
 clean: ## Stop local containers (keeps ./data)
 	$(COMPOSE) down
 
+# Push local secret files to DEPLOY_HOST. Not part of remote-deploy (avoids
+# clobbering a fresh server session with a stale laptop copy).
+garmin-sync: ## Push secrets/garmin/session.json to DEPLOY_HOST
+	$(REMOTE) sync-secret garmin
+
+strava-sync: ## Push secrets/strava/tokens.json to DEPLOY_HOST
+	$(REMOTE) sync-secret strava
+
+ytmusic-sync: ## Push secrets/ytmusic/headers.json to DEPLOY_HOST
+	$(REMOTE) sync-secret ytmusic
+
+google-sync: ## Push Google Workspace credential files to DEPLOY_HOST
+	$(REMOTE) sync-secret google
+
+secrets-sync: ## Push all secret groups to DEPLOY_HOST
+	$(REMOTE) sync-secret all
+
+# After *-auth: if DEPLOY_HOST is set, push that secret group automatically.
+ifeq ($(OS),Windows_NT)
+define PUSH_SECRET_IF_REMOTE
+	@powershell -NoProfile -Command "if ('$(HAS_DEPLOY_HOST)' -eq '1') { Write-Host 'DEPLOY_HOST set - pushing $(1) secrets to server...'; & make --no-print-directory $(1)-sync; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE } } else { Write-Host 'No DEPLOY_HOST in .env - $(1) secret stays local only (make $(1)-sync later).' }"
+endef
+else
+define PUSH_SECRET_IF_REMOTE
+	@if [ "$(HAS_DEPLOY_HOST)" = "1" ]; then \
+	  echo "DEPLOY_HOST set - pushing $(1) secrets to server..."; \
+	  $(MAKE) --no-print-directory $(1)-sync; \
+	else \
+	  echo "No DEPLOY_HOST in .env - $(1) secret stays local only (make $(1)-sync later)."; \
+	fi
+endef
+endif
+
 strava-auth: ## One-time Strava OAuth in a throwaway container (see docs/strava.md)
 	@echo Opening Strava OAuth. A URL will be printed below — open it in your browser and approve.
 	$(COMPOSE) run --rm --build -p 19876:19876 --entrypoint strava-mcp $(SERVICE) auth
+	$(call PUSH_SECRET_IF_REMOTE,strava)
 
 garmin-auth: ## Garmin login; clears stale session.json then writes a fresh one (see docs/garmin.md)
 	@echo Clearing stale secrets/garmin/session.json if present...
 	-$(RM_GARMIN_SESSION)
 	@echo Garmin interactive login (email / password / MFA). Session lands in secrets/garmin/.
 	$(COMPOSE) run --rm --build -it --entrypoint garmin $(SERVICE) login
+	$(call PUSH_SECRET_IF_REMOTE,garmin)
 
 ytmusic-auth: ## YouTube Music browser headers → secrets/ytmusic/headers.json (see docs/ytmusic.md)
 	@echo DevTools → Network → browse → Request Headers: copy cookie, then x-goog-authuser.
 	@echo The CLI prompts for each value. See docs/ytmusic.md.
 	$(COMPOSE) run --rm --build -it --entrypoint youtube-go-mcp $(SERVICE) \
 	  auth --out /zeroclaw-data/.config/ytmusic/headers.json
+	$(call PUSH_SECRET_IF_REMOTE,ytmusic)
 
 google-auth: ## Google Workspace OAuth via container; writes secrets/google-mcp (see docs/google-workspace.md)
 ifeq ($(OS),Windows_NT)
@@ -239,6 +284,7 @@ ifeq ($(OS),Windows_NT)
 else
 	bash scripts/google-auth.sh
 endif
+	$(call PUSH_SECRET_IF_REMOTE,google)
 
 google-mcp-import: ## Legacy: import gws export into secrets/google-mcp (prefer make google-auth)
 ifeq ($(OS),Windows_NT)
@@ -246,6 +292,7 @@ ifeq ($(OS),Windows_NT)
 else
 	bash scripts/google-mcp-import.sh
 endif
+	$(call PUSH_SECRET_IF_REMOTE,google)
 
 # --- Remote Ubuntu server (from Windows via OpenSSH) -------------------------
 

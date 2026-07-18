@@ -131,7 +131,7 @@ You do **not** need Docker on your workstation — only the server runs it. File
 
 ```mermaid
 flowchart LR
-  Win[💻 Windows / Linux<br/>workstation] -->|scp compose · .env · config · secrets| Srv
+  Win[💻 Windows / Linux<br/>workstation] -->|scp compose · .env · config| Srv
   Win -->|ssh: docker compose build && up| Srv[🖥️ Ubuntu server]
   Srv -->|long poll| TG[Telegram]
   Srv -->|HTTPS| GEM[Gemini]
@@ -211,10 +211,10 @@ flowchart LR
   R --> SMS[sms.md]
   T -. optional .-> W
   W -. related .-> SMS
-  D -. secrets sync .-> G
-  D -. secrets sync .-> S
-  D -. secrets sync .-> Ga
-  D -. secrets sync .-> Ym
+  D -. google-sync .-> G
+  D -. strava-sync .-> S
+  D -. garmin-sync .-> Ga
+  D -. ytmusic-sync .-> Ym
   D -. host net .-> C
   Ym -. videoId .-> C
   classDef core fill:#1f6feb22,stroke:#1f6feb,color:#79c0ff;
@@ -284,7 +284,8 @@ Full guide: **[docs/strava.md](docs/strava.md)**.
 Tim can read Garmin Connect for sleep, Index scale weight, Body Battery / HRV, and training readiness via [shotah/go-garmin](https://github.com/shotah/go-garmin) (`garmin mcp`) — a static Go binary baked into the image. Optional. No API app; one interactive login writes `secrets/garmin/session.json`.
 
 ```bash
-make garmin-auth          # interactive email / password / MFA → secrets/garmin/session.json
+make garmin-auth          # interactive login → session.json (+ garmin-sync if DEPLOY_HOST set)
+make garmin-sync          # push session.json to server without re-login
 make sync-config && make build && make up   # or: make remote-deploy
 ```
 
@@ -362,7 +363,7 @@ make help            # full grouped list
 |---|---|
 | `init`, `env`, `dirs`, `config` | `remote-check` — SSH + Docker probe |
 | `sync-config` — `.env` → `config.toml` | `remote-deploy` — sync + build + up |
-| `build` — thin distroless + `gws` | `remote-sync` — scp files & secrets |
+| `build` — thin distroless + `gws` | `remote-sync` — scp compose/.env/config (not secrets) |
 | `up` / `down` / `restart` | `remote-up` / `remote-down` / `remote-restart` |
 | `logs` / `ps` / `status` | `remote-logs` / `remote-ps` / `remote-status` |
 | `shell` — debug (debian image) | `remote-bind` — approve a Telegram id |

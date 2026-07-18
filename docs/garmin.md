@@ -84,6 +84,16 @@ No published ports (unlike Strava’s OAuth callback). Re-run if the session
 expires — `make garmin-auth` deletes any existing `session.json` first so a
 stale “already logged in” file doesn’t block refresh.
 
+If `.env` has `DEPLOY_HOST`, `make garmin-auth` also runs **`make garmin-sync`**
+and pushes `session.json` to the server. `remote-deploy` does **not** copy
+Garmin secrets (so a stale laptop file can’t clobber a good server session).
+
+Push anytime without re-login:
+
+```bash
+make garmin-sync
+```
+
 ---
 
 ## 3. Deploy / restart
@@ -92,10 +102,8 @@ stale “already logged in” file doesn’t block refresh.
 make sync-config     # if you refreshed from config.toml.example
 make build           # bakes garmin into the image
 make up              # or make remote-deploy
+make garmin-sync     # only when you intentionally want the server to get this session
 ```
-
-`make remote-deploy` copies `secrets/garmin/session.json` when present (listed
-in `scripts/deploy-manifest.txt`).
 
 ---
 
@@ -167,7 +175,7 @@ endpoint). Bouldering often shows attempts via `CLIMB_ATTEMPTED` status instead.
 |---|---|
 | Tim doesn’t see Garmin tools | Grant bundle: `mcp_bundles = ["strava", "garmin"]` + `[mcp_bundles.garmin]`; rebuild so `garmin` is in the image |
 | `garmin: not found` | `make build` / `make remote-deploy` |
-| `not logged in` | `make garmin-auth`; confirm `secrets/garmin/session.json` exists and was synced |
+| `not logged in` | `make garmin-auth` (auto `garmin-sync` if `DEPLOY_HOST` set), or `make garmin-sync` |
 | Every call asks for approval | Add exact `garmin__<tool>` names to `auto_approve` |
 | Auth / 401 after weeks | Session expired — re-run `make garmin-auth` (clears stale `session.json` first) |
 | Rate limited (429) | Unofficial Connect API — ask for summaries, don’t poll |

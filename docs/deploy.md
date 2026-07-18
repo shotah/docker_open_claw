@@ -75,7 +75,9 @@ Or step by step:
 
 | Command | What it does |
 |---|---|
-| `make remote-sync` | scp compose, Makefile, `.env`, config, secrets, scripts |
+| `make remote-sync` | scp compose, Makefile, `.env`, config, scripts (not token/session secrets) |
+| `make garmin-sync` / `strava-sync` / `ytmusic-sync` / `google-sync` | Push one secret group (also auto after `*-auth` when `DEPLOY_HOST` is set) |
+| `make secrets-sync` | Push all secret groups |
 | `make remote-up` | `docker compose build --pull && up -d` on server |
 | `make remote-down` | stop stack on server |
 | `make remote-restart` | restart |
@@ -94,7 +96,12 @@ Synced:
 - `config/config.toml.example`, `data/.zeroclaw/config.toml`
 - `scripts/sync-config.js`, `docs/telegram.md`, `README.md`, `Dockerfile`
 
-**Not** synced: local `data/` runtime memory (SQLite / workspace). The server keeps its own `DEPLOY_PATH/data/` so restarts don’t wipe chat memory when you redeploy from Windows.
+**Not** synced by `remote-deploy`:
+
+- local `data/` runtime memory (SQLite / workspace) — server keeps its own
+- token/session files under `secrets/*` (Garmin / Strava / YT Music / Google) —
+  push deliberately with `make garmin-sync` etc. so a stale laptop file can’t
+  overwrite a good server session
 
 To wipe server state intentionally:
 

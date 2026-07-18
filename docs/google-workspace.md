@@ -75,10 +75,13 @@ make google-auth
 2. Browser hits `http://localhost:4100/oauth2callback` → container captures the code.
 3. On success: `secrets/google-mcp/credentials/<you@email>.json`
 
-Then deploy:
+Then deploy. `make google-auth` auto-runs **`make google-sync`** when
+`DEPLOY_HOST` is set (`remote-deploy` does not copy Workspace secrets):
 
 ```bash
-make remote-deploy   # or: make build && make up
+make remote-deploy   # config/image only
+make google-sync     # push credentials when you mean to
+# or: make build && make up   # local
 ```
 
 Send **`/new`** in Telegram so Tim drops any stale auth habit.
@@ -130,8 +133,9 @@ Prefer **`make google-auth`** for new setups (no local gws dependency).
 - **Docs write fails with “only lowercase…” / `batchUpdate`** — that’s the
   **built-in** tool. Confirm `[google_workspace] enabled = false` and that Tim
   is using MCP tools (`modify_doc_text`, etc.). `/new` after deploy.
-- **MCP auth / 401 / “expired”** — re-run `make google-auth`, then
-  `make remote-deploy`. Check OAuth app isn’t stuck in Testing (7-day refresh).
+- **MCP auth / 401 / “expired”** — re-run `make google-auth` (pushes via
+  `google-sync` if `DEPLOY_HOST` is set). Check OAuth app isn’t stuck in
+  Testing (7-day refresh).
 - **Callback never completes** — port `4100` free on the host; Desktop client
   allows `http://localhost:4100/oauth2callback`.
 - **No `refresh_token` in response** — revoke prior grant at

@@ -120,11 +120,13 @@ callback still lands. Point `STRAVA_TOKEN_PATH` at the repo's
 make sync-config     # regenerates config/config.toml with the [mcp] block
 make build           # bakes strava-mcp into the image
 make up              # local
-# or: make remote-deploy   # ships the token + config to the server
+# or: make remote-deploy   # config/image only — tokens are separate
+make strava-sync           # push tokens.json when you mean to
 ```
 
-`make remote-deploy` copies `secrets/strava/tokens.json` to the server (it's in
-the deploy manifest) and rebuilds so the binary is present.
+`make remote-deploy` does **not** copy Strava tokens (avoids clobbering the
+server). `make strava-auth` auto-runs **`make strava-sync`** when
+`DEPLOY_HOST` is set.
 
 ---
 
@@ -194,7 +196,7 @@ Credentials come from the container environment (set in `.env`, passed through
 |---|---|
 | Tim doesn't see Strava tools (searches Gmail instead) | **Grant the bundle:** `agents.main.mcp_bundles = ["strava"]` + `[mcp_bundles.strava] servers = ["strava"]`. ZeroClaw 0.8.2 is secure-by-default — `[[mcp.servers]]` alone doesn't reach the agent. Also `[mcp] enabled = true`, `deferred_loading = false`, and rebuild so `strava-mcp` is in the image |
 | `strava-mcp: not found` | Rebuild the image (`make build` / `make remote-deploy`) |
-| Auth / 401 / token errors | Re-run `strava-mcp auth`, then redeploy so the fresh `tokens.json` ships |
+| Auth / 401 / token errors | `make strava-auth` (or `make strava-sync` after a local re-auth) |
 | Loop detector: `tool 'shell' called N times` | Same cause as "doesn't see Strava tools" — with no Strava tools granted, the model flails calling `shell`. Grant the bundle (row above) |
 | Every call asks for approval | Add the **exact** prefixed names `strava__<tool>` to `risk_profiles.default.auto_approve` — a bare `"strava"` does not match |
 | No activities | Confirm the watch/app actually syncs to Strava (Garmin → Connected Apps → Strava) |

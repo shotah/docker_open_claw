@@ -33,6 +33,43 @@ remote() {
 ACTION="${1:-}"
 shift || true
 
+read_manifest_lines() {
+  local manifest="$1"
+  [[ -f "$manifest" ]] || { echo "Missing manifest: $manifest"; exit 1; }
+  grep -vE '^[[:space:]]*(#|$)' "$manifest" | sed -e 's/\r$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+
+ensure_remote_parents() {
+  local dirs=(data/data)
+  local f
+  for f in "$@"; do
+    [[ "$f" == */* ]] && dirs+=("${f%/*}")
+  done
+  local mkdir_args="" d
+  while IFS= read -r d; do
+    [[ -n "$d" ]] || continue
+    mkdir_args+=" '$DEPLOY_PATH/$d'"
+  done < <(printf '%s\n' "${dirs[@]}" | sort -u)
+  echo "Ensuring remote dirs under $DEPLOY_PATH"
+  # shellcheck disable=SC2086
+  remote "mkdir -p$mkdir_args"
+}
+
+copy_to_remote() {
+  local rel="$1"
+  if [[ -d "$rel" ]]; then
+    remote "mkdir -p '$DEPLOY_PATH/$rel'"
+    echo "scp -r $rel/"
+    scp "${SCP_OPTS[@]}" -r "$rel" "$TARGET:$DEPLOY_PATH/${rel%/*}/"
+  elif [[ -f "$rel" ]]; then
+    echo "scp $rel"
+    scp "${SCP_OPTS[@]}" "$rel" "$TARGET:$DEPLOY_PATH/$rel"
+  else
+    echo "Skip missing $rel"
+    return 1
+  fi
+}
+
 case "$ACTION" in
   check)
     echo "Checking SSH: $TARGET:$DEPLOY_SSH_PORT → $DEPLOY_PATH"
@@ -41,37 +78,49 @@ case "$ACTION" in
   sync)
     command -v node >/dev/null && node scripts/sync-config.js || true
 
-    # Single source of truth shared with remote.ps1 (see scripts/deploy-manifest.txt)
-    manifest="scripts/deploy-manifest.txt"
-    [[ -f "$manifest" ]] || { echo "Missing sync manifest: $manifest"; exit 1; }
-    files=()
-    while IFS= read -r line; do
-      files+=("$line")
-    done < <(grep -vE '^[[:space:]]*(#|$)' "$manifest" | sed -e 's/\r$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-
-    # Remote dirs = runtime data dir + every parent directory in the manifest
-    dirs=(data/data)
+    # Code/config only — credentials use sync-secret (see secrets-manifest.txt)
+    mapfile -t files < <(read_manifest_lines scripts/deploy-manifest.txt)
+    ensure_remote_parents "${files[@]}"
     for f in "${files[@]}"; do
-      [[ "$f" == */* ]] && dirs+=("${f%/*}")
+      copy_to_remote "$f" || true
     done
-    mkdir_args=""
-    while IFS= read -r d; do
-      mkdir_args+=" '$DEPLOY_PATH/$d'"
-    done < <(printf '%s\n' "${dirs[@]}" | sort -u)
-    remote "mkdir -p$mkdir_args"
-
-    for f in "${files[@]}"; do
-      [[ -f "$f" ]] || continue
-      echo "scp $f"
-      scp "${SCP_OPTS[@]}" "$f" "$TARGET:$DEPLOY_PATH/$f"
-    done
-
-    [[ -f secrets/google/credentials.json ]] || \
-      echo "No secrets/google/credentials.json yet (see docs/google-workspace.md)"
-
-    # Drop stale gws token cache so new refresh-token scopes take effect
-    remote "rm -f '$DEPLOY_PATH/secrets/google/token_cache.json'; rm -rf '$DEPLOY_PATH/secrets/google/cache'"
     echo "Synced to $TARGET:$DEPLOY_PATH"
+    echo "Note: token/session secrets are NOT in remote-deploy. Use make garmin-sync / strava-sync / ytmusic-sync / google-sync"
+    ;;
+  sync-secret)
+    name="$(echo "${1:-}" | tr '[:upper:]' '[:lower:]')"
+    shift || true
+    [[ -n "$name" ]] || { echo "Usage: $0 sync-secret <garmin|strava|ytmusic|google|all>"; exit 1; }
+
+    paths=()
+    while IFS= read -r line; do
+      group="${line%%|*}"
+      path="${line#*|}"
+      group="$(echo "$group" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+      path="$(echo "$path" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+      if [[ "$name" == "all" || "$group" == "$name" ]]; then
+        paths+=("$path")
+      fi
+    done < <(read_manifest_lines scripts/secrets-manifest.txt)
+
+    if [[ ${#paths[@]} -eq 0 ]]; then
+      echo "Unknown secret group '$name'. See scripts/secrets-manifest.txt"
+      exit 1
+    fi
+
+    ensure_remote_parents "${paths[@]}"
+    copied=0
+    for p in "${paths[@]}"; do
+      if copy_to_remote "$p"; then
+        copied=$((copied + 1))
+      fi
+    done
+    [[ "$copied" -gt 0 ]] || { echo "No local files found for secret group '$name' — run the matching *-auth first"; exit 1; }
+
+    if [[ "$name" == "google" || "$name" == "all" ]]; then
+      remote "rm -f '$DEPLOY_PATH/secrets/google/token_cache.json'; rm -rf '$DEPLOY_PATH/secrets/google/cache'"
+    fi
+    echo "Secret group '$name' synced to $TARGET:$DEPLOY_PATH ($copied path(s))"
     ;;
   up)
     bust=$(date +%s)
@@ -106,7 +155,7 @@ case "$ACTION" in
     fi
     ;;
   *)
-    echo "Usage: $0 <check|sync|up|down|restart|logs|ps|status|pull|ssh>"
+    echo "Usage: $0 <check|sync|sync-secret|up|down|restart|logs|ps|status|pull|ssh|bind>"
     exit 1
     ;;
 esac

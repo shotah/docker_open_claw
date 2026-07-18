@@ -101,10 +101,11 @@ Re-run `make ytmusic-auth` when tools return session expired / HTTP 401–403.
 make sync-config     # if you refreshed from config.toml.example
 make build           # bakes youtube-go-mcp into the image
 make up              # or make remote-deploy
+make ytmusic-sync    # push headers when you mean to (not part of remote-deploy)
 ```
 
-`make remote-deploy` syncs `secrets/ytmusic/headers.json` when present
-(`scripts/deploy-manifest.txt`).
+`make remote-deploy` does **not** copy YT Music headers. `make ytmusic-auth`
+auto-runs **`make ytmusic-sync`** when `DEPLOY_HOST` is set.
 
 ---
 
@@ -157,7 +158,7 @@ device.
 |---|---|
 | Tim doesn’t see YT Music tools | Grant bundle `"ytmusic"`; rebuild so `youtube-go-mcp` is in the image |
 | `youtube-go-mcp: not found` | `make build` / `make remote-deploy` |
-| Library tools fail; search works | Missing/expired `secrets/ytmusic/headers.json` — `make ytmusic-auth` |
+| Library tools fail; search works | Missing/expired headers — `make ytmusic-auth` (or `make ytmusic-sync`) |
 | `--self-test` liked/library fail | Re-export headers from a fresh authenticated `/browse` call |
 | Nest connects but silence | Agent used `beam_media` with a watch URL — must use `beam_youtube_video` + `videoId` |
 | Cast plays royalty-free junk | Use `videoId` from this MCP; don’t invent free MP3s |

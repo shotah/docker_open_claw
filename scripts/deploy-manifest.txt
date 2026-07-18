@@ -1,7 +1,10 @@
-# Files synced to the server by scripts/remote.(ps1|sh) `sync`.
-# One repo-relative path per line. Blank lines and # comment lines are ignored.
-# Missing files are skipped, so optional paths (e.g. secrets) are safe to list.
-# Remote parent directories are created automatically from these paths.
+# Files synced to the server by scripts/remote.(ps1|sh) `sync` (make remote-sync /
+# remote-deploy). One repo-relative path per line. Blank lines and # comments ignored.
+# Missing files are skipped. Remote parent directories are created automatically.
+#
+# Credential / session files live in scripts/secrets-manifest.txt and are pushed
+# only via `make garmin-sync` / `strava-sync` / `ytmusic-sync` / `google-sync`
+# (auth targets do that automatically when DEPLOY_HOST is set).
 
 docker-compose.yml
 Makefile
@@ -27,6 +30,7 @@ config/agents/main/workspace/MEMORY.md
 config/agents/main/workspace/HEARTBEAT.md
 scripts/sync-config.js
 scripts/deploy-manifest.txt
+scripts/secrets-manifest.txt
 scripts/google-auth.ps1
 scripts/google-auth.sh
 scripts/google-auth-inner.py
@@ -45,15 +49,10 @@ docs/persona.md
 docs/sms.md
 docs/deploy.md
 README.md
+# Secret *directories* only (empty stubs). Token/session files are NOT synced here.
 secrets/google/.gitkeep
-secrets/google/credentials.json
-secrets/google/client_secret.json
 secrets/google-mcp/.gitkeep
 secrets/google-mcp/credentials/.gitkeep
-secrets/google-mcp/credentials/christopherblodgett@gmail.com.json
 secrets/strava/.gitkeep
-secrets/strava/tokens.json
 secrets/garmin/.gitkeep
-secrets/garmin/session.json
 secrets/ytmusic/.gitkeep
-secrets/ytmusic/headers.json
